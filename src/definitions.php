@@ -58,4 +58,5 @@ return [
     },
     'username'                   => fn(): string => (string)($_SERVER['PHP_AUTH_USER'] ?? ''),
     'users'                      => [],
+    'public'                     => [],
 ];

@@ -34,13 +34,20 @@ class AuthenticationProvider
             return;
         }
 
-        $app->add(
-            new HttpBasicAuthentication([
-                'secure' => false,
-                'users'  => $userHashes,
-                'before' => $this->before(),
-            ])
-        );
+        $options = [
+            'secure' => false,
+            'users'  => $userHashes,
+            'before' => $this->before(),
+        ];
+
+        $publicPaths = $this->getPublicPaths();
+
+        if (! empty($publicPaths)) {
+            $options['path']   = ['/'];
+            $options['ignore'] = $publicPaths;
+        }
+
+        $app->add(new HttpBasicAuthentication($options));
     }
 
     /**
@@ -62,6 +69,24 @@ class AuthenticationProvider
 
             return $request->withAttribute('username', $username);
         };
+    }
+
+    /**
+     * Retrieves URL path patterns for publicly accessible packages.
+     *
+     * Each pattern from the `public` config is converted to a URL path prefix
+     * (e.g. `acme` becomes `/acme`) suitable for the authentication middleware's
+     * ignore list.
+     */
+    protected function getPublicPaths(): array
+    {
+        /** @var string[] $publicPaths */
+        $publicPaths = $this->container->has('public') ? $this->container->get('public') : [];
+
+        return array_map(
+            fn(string $path) => '/' . ltrim($path, '/'),
+            $publicPaths
+        );
     }
 
     /**

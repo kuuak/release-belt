@@ -15,6 +15,12 @@ return [
     // Customize path to the directory containing release ZIP files.
     // 'release.dir'           => __DIR__.'/../releases',
 
+    // Array of path patterns that are publicly accessible without authentication.
+    // Patterns match the vendor portion of the URL (e.g. 'acme' allows /acme/* without auth).
+    //'public'                   => [
+    //    'acme',
+    //],
+
     //'users'                    => [
           // User login.
     //    'composer' => [
