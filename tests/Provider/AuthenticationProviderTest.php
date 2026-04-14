@@ -240,6 +240,78 @@ class AuthenticationProviderTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
+    /**
+     * Authenticated users with an 'allow' list must still see public packages.
+     *
+     * This covers both the web-UI case (/ and /packages.json) and the Composer
+     * case where stored credentials are replayed for every request to the host.
+     */
+    public function testProcessIncludesPublicPackagesForAuthenticatedUserWithAllowList(): void
+    {
+        $finder = $this->createMock(Finder::class);
+
+        // The Finder should receive path('protected') from the allow list AND
+        // path('acme') from the public paths – in that order.
+        $finder->expects($this->exactly(2))
+            ->method('path')
+            ->withConsecutive(['protected'], ['acme'])
+            ->willReturnSelf();
+
+        $users = ['user' => ['hash' => password_hash('pass', PASSWORD_BCRYPT), 'allow' => ['protected']]];
+
+        $container = $this->createMock(ContainerInterface::class);
+        $container->method('get')->willReturnMap([
+            [Finder::class, $finder],
+            ['users', $users],
+        ]);
+
+        $this->provider->setPublicPaths(['/acme']);
+        $this->provider->setUserHashes(['user' => $users['user']['hash']]);
+        $this->provider->setContainer($container);
+
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', 'http://localhost/packages.json')
+            ->withHeader('Authorization', 'Basic ' . base64_encode('user:pass'));
+
+        $response = $this->provider->process($request, $this->makePassThroughHandler());
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * Authenticated users without an 'allow' list see all packages (no extra path() calls).
+     *
+     * Calling path() on an unconstrained Finder would incorrectly restrict results
+     * to only the public paths, so we must not call applyPublicFilter() in this case.
+     */
+    public function testProcessDoesNotApplyPublicFilterWhenUserHasNoAllowList(): void
+    {
+        $finder = $this->createMock(Finder::class);
+
+        // No path() calls should be made – the Finder must stay unrestricted.
+        $finder->expects($this->never())->method('path');
+
+        $users = ['user' => ['hash' => password_hash('pass', PASSWORD_BCRYPT)]];
+
+        $container = $this->createMock(ContainerInterface::class);
+        $container->method('get')->willReturnMap([
+            [Finder::class, $finder],
+            ['users', $users],
+        ]);
+
+        $this->provider->setPublicPaths(['/acme']);
+        $this->provider->setUserHashes(['user' => $users['user']['hash']]);
+        $this->provider->setContainer($container);
+
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', 'http://localhost/')
+            ->withHeader('Authorization', 'Basic ' . base64_encode('user:pass'));
+
+        $response = $this->provider->process($request, $this->makePassThroughHandler());
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

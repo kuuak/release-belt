@@ -76,10 +76,15 @@ class AuthenticationProvider implements MiddlewareInterface
             }
 
             // Valid credentials – apply per-user Finder filters and tag the request.
-            $this->applyPermissions(
-                $this->container->get(Finder::class),
-                $this->getPermissions($this->container->get('users'), $user)
-            );
+            $permissions = $this->getPermissions($this->container->get('users'), $user);
+            $this->applyPermissions($this->container->get(Finder::class), $permissions);
+
+            // When the user has explicit 'allow' restrictions, also include all public
+            // packages so they remain visible/downloadable via packages.json and the
+            // web interface even for authenticated users.
+            if (! empty($permissions['allow'])) {
+                $this->applyPublicFilter($this->container->get(Finder::class));
+            }
 
             $request = $request->withAttribute('username', $user);
 
