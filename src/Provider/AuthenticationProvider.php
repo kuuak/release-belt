@@ -5,19 +5,39 @@ declare(strict_types=1);
 namespace Rarst\ReleaseBelt\Provider;
 
 use Psr\Container\ContainerInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\MiddlewareInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 use Slim\App;
+use Slim\Psr7\Factory\ResponseFactory;
 use Symfony\Component\Finder\Finder;
-use Tuupola\Middleware\HttpBasicAuthentication;
 
 /**
- * Implements HTTP authentication.
+ * Implements HTTP authentication as a PSR-15 middleware.
+ *
+ * When users are configured, this middleware guards all routes:
+ *  - /login              always triggers the Basic Auth browser dialog; on
+ *                        success it redirects back to the index page.
+ *  - / and /packages.json  accessible without credentials; unauthenticated
+ *                        requests see only public-vendor packages.
+ *  - /{public-vendor}/*  accessible without credentials.
+ *  - everything else     requires valid credentials (returns 401 otherwise).
+ *
+ * When no users are configured the middleware is not added to the app and
+ * every route is fully public.
  *
  * @psalm-suppress MissingConstructor
  */
-class AuthenticationProvider
+class AuthenticationProvider implements MiddlewareInterface
 {
-    private ContainerInterface $container;
+    protected ContainerInterface $container;
+
+    /** @var array<string, string> username → bcrypt hash */
+    protected array $userHashes = [];
+
+    /** @var string[] URL-prefixed public paths, e.g. ['/acme', '/my-plugins'] */
+    protected array $publicPaths = [];
 
     /**
      * Does necessary registrations on the app instance.
@@ -34,49 +54,158 @@ class AuthenticationProvider
             return;
         }
 
-        $options = [
-            'secure' => false,
-            'users'  => $userHashes,
-            'before' => $this->before(),
-        ];
+        $this->userHashes  = $userHashes;
+        $this->publicPaths = $this->getPublicPaths();
 
-        $publicPaths = $this->getPublicPaths();
-
-        if (! empty($publicPaths)) {
-            $options['path']   = ['/'];
-            $options['ignore'] = $publicPaths;
-        }
-
-        $app->add(new HttpBasicAuthentication($options));
+        $app->add($this);
     }
 
     /**
-     * Returns a closure to use in authentication middleware.
-     *
-     * The closure add username attribute to request and applies permissions.
+     * PSR-15 process: validates credentials and enforces access rules.
      */
-    private function before(): \Closure
+    public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        $auth = $this; // We need this because middleware binds the closure to its own object.
+        $path        = $request->getUri()->getPath();
+        $credentials = $this->extractCredentials($request);
 
-        return function (ServerRequestInterface $request, array $arguments) use ($auth): ServerRequestInterface {
-            $username = $arguments['user'] ?? '';
+        if ($credentials !== null) {
+            [$user, $password] = $credentials;
 
-            $auth->applyPermissions(
-                $auth->container->get(Finder::class),
-                $auth->getPermissions($auth->container->get('users'), $username)
+            if (! $this->validateCredentials($user, $password)) {
+                return $this->unauthorizedResponse();
+            }
+
+            // Valid credentials – apply per-user Finder filters and tag the request.
+            $this->applyPermissions(
+                $this->container->get(Finder::class),
+                $this->getPermissions($this->container->get('users'), $user)
             );
 
-            return $request->withAttribute('username', $username);
-        };
+            $request = $request->withAttribute('username', $user);
+
+            // /login is only a trigger for the browser dialog; redirect home.
+            if ($path === '/login') {
+                return $this->redirectResponse('/');
+            }
+        } else {
+            if ($this->requiresAuthentication($path)) {
+                return $this->unauthorizedResponse();
+            }
+
+            // Unauthenticated access to browsing pages: restrict to public packages.
+            if (in_array($path, ['/', '/packages.json'], true)) {
+                $this->applyPublicFilter($this->container->get(Finder::class));
+            }
+        }
+
+        return $handler->handle($request);
+    }
+
+    /**
+     * Returns true when the given path must not be served without credentials.
+     */
+    private function requiresAuthentication(string $path): bool
+    {
+        // /login must always challenge the browser.
+        if ($path === '/login') {
+            return true;
+        }
+
+        // No public vendors → original behaviour: every route is protected.
+        if (empty($this->publicPaths)) {
+            return true;
+        }
+
+        // Browsing pages are always reachable (with a public-only package view).
+        if (in_array($path, ['/', '/packages.json'], true)) {
+            return false;
+        }
+
+        return ! $this->isPublicVendorPath($path);
+    }
+
+    /**
+     * Returns true when $path falls under one of the configured public vendors.
+     */
+    private function isPublicVendorPath(string $path): bool
+    {
+        foreach ($this->publicPaths as $prefix) {
+            if (strpos($path, $prefix . '/') === 0 || $path === $prefix) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Adds Finder path filters so that only public-vendor packages are visible.
+     */
+    private function applyPublicFilter(Finder $finder): void
+    {
+        foreach ($this->publicPaths as $prefix) {
+            $finder->path(ltrim($prefix, '/'));
+        }
+    }
+
+    /**
+     * Extracts [username, password] from an Authorization: Basic … header.
+     *
+     * Returns null when the header is absent or malformed.
+     *
+     * @return string[]|null
+     */
+    private function extractCredentials(ServerRequestInterface $request): ?array
+    {
+        $header = $request->getHeaderLine('Authorization');
+
+        if ($header === '' || ! preg_match('/Basic\s+(.*)$/i', $header, $matches)) {
+            return null;
+        }
+
+        $decoded = base64_decode($matches[1]);
+
+        if (strpos($decoded, ':') === false) {
+            return null;
+        }
+
+        return explode(':', $decoded, 2);
+    }
+
+    /**
+     * Validates a username / plain-text password pair against stored bcrypt hashes.
+     */
+    private function validateCredentials(string $user, string $password): bool
+    {
+        return isset($this->userHashes[$user])
+            && password_verify($password, $this->userHashes[$user]);
+    }
+
+    /**
+     * Builds a 401 response that triggers the browser's Basic Auth dialog.
+     */
+    private function unauthorizedResponse(): ResponseInterface
+    {
+        return (new ResponseFactory())
+            ->createResponse(401)
+            ->withHeader('WWW-Authenticate', 'Basic realm="Protected"');
+    }
+
+    /**
+     * Builds a 302 redirect response.
+     */
+    private function redirectResponse(string $location): ResponseInterface
+    {
+        return (new ResponseFactory())
+            ->createResponse(302)
+            ->withHeader('Location', $location);
     }
 
     /**
      * Retrieves URL path patterns for publicly accessible packages.
      *
-     * Each pattern from the `public` config is converted to a URL path prefix
-     * (e.g. `acme` becomes `/acme`) suitable for the authentication middleware's
-     * ignore list.
+     * Each vendor name from the `public` config is converted to a URL path
+     * prefix (e.g. `acme` → `/acme`).
      */
     protected function getPublicPaths(): array
     {
@@ -84,7 +213,9 @@ class AuthenticationProvider
         $publicPaths = $this->container->has('public') ? $this->container->get('public') : [];
 
         return array_map(
-            fn(string $path) => '/' . ltrim($path, '/'),
+            static function (string $path): string {
+                return '/' . ltrim($path, '/');
+            },
             $publicPaths
         );
     }
@@ -122,7 +253,7 @@ class AuthenticationProvider
     }
 
     /**
-     * Applies access permissions on a Finder instance for package lookup..
+     * Applies access permissions on a Finder instance for package lookup.
      */
     protected function applyPermissions(Finder $finder, array $permissions): Finder
     {

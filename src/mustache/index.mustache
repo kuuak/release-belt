@@ -10,7 +10,17 @@
 </head>
 <body>
 <div class="container">
-    <h1 class="pt-3">Release Belt <small class="text-muted">{{host}}</small></h1>
+    <div class="d-flex justify-content-between align-items-center pt-3">
+        <h1 class="mb-0">Release Belt <small class="text-muted">{{host}}</small></h1>
+        <div>
+            {{^user}}
+            <a href="{{loginUrl}}" class="btn btn-outline-secondary btn-sm">Login</a>
+            {{/user}}
+            {{#user}}
+            <span class="text-muted small">Logged in as <strong>{{user}}</strong></span>
+            {{/user}}
+        </div>
+    </div>
     <hr/>
 
     <div class="row">

@@ -28,6 +28,13 @@ $app->get('/', IndexController::class)->setName('index');
 $app->get('/packages.json', JsonController::class)->setName('json');
 $app->get('/{vendor}/{file}', FileController::class)->setName('file');
 
+// /login is handled entirely by AuthenticationProvider middleware when auth is
+// configured (401 challenge → browser dialog → 302 to /).  When no users are
+// configured this fallback simply redirects to the index page.
+$app->get('/login', static function ($request, $response) {
+    return $response->withStatus(302)->withHeader('Location', '/');
+})->setName('login');
+
 $app->add(new IpAddress());
 
 $authentication = new AuthenticationProvider();
