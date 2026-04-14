@@ -68,39 +68,54 @@ class AuthenticationProvider implements MiddlewareInterface
         $path        = $request->getUri()->getPath();
         $credentials = $this->extractCredentials($request);
 
+        // /login exists solely to trigger the browser's credential dialog; on
+        // success it redirects home, on failure it re-challenges.
+        if ($path === '/login') {
+            if ($credentials !== null) {
+                [$user, $password] = $credentials;
+                if ($this->validateCredentials($user, $password)) {
+                    return $this->redirectResponse('/');
+                }
+            }
+
+            return $this->unauthorizedResponse();
+        }
+
+        $isAuthenticated = false;
+
         if ($credentials !== null) {
             [$user, $password] = $credentials;
 
-            if (! $this->validateCredentials($user, $password)) {
+            if ($this->validateCredentials($user, $password)) {
+                $isAuthenticated = true;
+
+                // Apply per-user Finder filters and tag the request.
+                $permissions = $this->getPermissions($this->container->get('users'), $user);
+                $this->applyPermissions($this->container->get(Finder::class), $permissions);
+
+                // When the user has an explicit allow list, also include public
+                // packages so they remain visible/downloadable via packages.json and
+                // the web interface even for restricted users.
+                if (! empty($permissions['allow'])) {
+                    $this->applyPublicFilter($this->container->get(Finder::class));
+                }
+
+                $request = $request->withAttribute('username', $user);
+            } elseif ($this->requiresAuthentication($path)) {
+                // Invalid credentials on a protected path → 401.
                 return $this->unauthorizedResponse();
             }
+            // Invalid credentials on a public path: fall through as unauthenticated
+            // so that truly-public packages remain accessible even when a Composer
+            // client replays stale credentials stored from a previous session.
+        } elseif ($this->requiresAuthentication($path)) {
+            return $this->unauthorizedResponse();
+        }
 
-            // Valid credentials – apply per-user Finder filters and tag the request.
-            $permissions = $this->getPermissions($this->container->get('users'), $user);
-            $this->applyPermissions($this->container->get(Finder::class), $permissions);
-
-            // When the user has explicit 'allow' restrictions, also include all public
-            // packages so they remain visible/downloadable via packages.json and the
-            // web interface even for authenticated users.
-            if (! empty($permissions['allow'])) {
-                $this->applyPublicFilter($this->container->get(Finder::class));
-            }
-
-            $request = $request->withAttribute('username', $user);
-
-            // /login is only a trigger for the browser dialog; redirect home.
-            if ($path === '/login') {
-                return $this->redirectResponse('/');
-            }
-        } else {
-            if ($this->requiresAuthentication($path)) {
-                return $this->unauthorizedResponse();
-            }
-
-            // Unauthenticated access to browsing pages: restrict to public packages.
-            if (in_array($path, ['/', '/packages.json'], true)) {
-                $this->applyPublicFilter($this->container->get(Finder::class));
-            }
+        // Unauthenticated (or degraded-to-unauthenticated) browsing: restrict to
+        // public packages only.
+        if (! $isAuthenticated && in_array($path, ['/', '/packages.json'], true)) {
+            $this->applyPublicFilter($this->container->get(Finder::class));
         }
 
         return $handler->handle($request);

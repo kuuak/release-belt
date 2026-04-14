@@ -171,20 +171,63 @@ class AuthenticationProviderTest extends TestCase
     }
 
     /**
-     * Invalid credentials always return 401, even for browsing pages.
+     * Invalid credentials on a *protected* path always return 401.
      */
-    public function testProcessReturns401ForInvalidCredentials(): void
+    public function testProcessReturns401ForInvalidCredentialsOnProtectedPath(): void
     {
         $this->provider->setPublicPaths(['/acme']);
         $this->provider->setUserHashes(['user' => password_hash('correct', PASSWORD_BCRYPT)]);
 
         $request = (new ServerRequestFactory())
-            ->createServerRequest('GET', 'http://localhost/')
+            ->createServerRequest('GET', 'http://localhost/protected/package.zip')
             ->withHeader('Authorization', 'Basic ' . base64_encode('user:wrong'));
 
         $response = $this->provider->process($request, $this->makePassThroughHandler());
 
         $this->assertSame(401, $response->getStatusCode());
+    }
+
+    /**
+     * Invalid credentials on a *public* path are ignored (treated as unauthenticated).
+     *
+     * Composer replays credentials stored from a prior session for every request
+     * to the same host. If those credentials have become stale, we must not block
+     * access to packages that are configured as publicly accessible.
+     */
+    public function testProcessAllowsInvalidCredentialsOnPublicVendorPath(): void
+    {
+        $finder = (new Finder())->files();
+        $this->provider->setPublicPaths(['/acme']);
+        $this->provider->setUserHashes(['user' => password_hash('correct', PASSWORD_BCRYPT)]);
+        $this->provider->setContainer($this->makeContainerWithFinder($finder));
+
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', 'http://localhost/acme/package.zip')
+            ->withHeader('Authorization', 'Basic ' . base64_encode('user:wrong'));
+
+        $response = $this->provider->process($request, $this->makePassThroughHandler());
+
+        $this->assertNotEquals(401, $response->getStatusCode());
+    }
+
+    /**
+     * Invalid credentials on /packages.json (a public browsing page) fall through
+     * as unauthenticated and return public packages.
+     */
+    public function testProcessAllowsInvalidCredentialsOnPackagesJson(): void
+    {
+        $finder = (new Finder())->files();
+        $this->provider->setPublicPaths(['/acme']);
+        $this->provider->setUserHashes(['user' => password_hash('correct', PASSWORD_BCRYPT)]);
+        $this->provider->setContainer($this->makeContainerWithFinder($finder));
+
+        $request = (new ServerRequestFactory())
+            ->createServerRequest('GET', 'http://localhost/packages.json')
+            ->withHeader('Authorization', 'Basic ' . base64_encode('user:wrong'));
+
+        $response = $this->provider->process($request, $this->makePassThroughHandler());
+
+        $this->assertNotEquals(401, $response->getStatusCode());
     }
 
     /**
