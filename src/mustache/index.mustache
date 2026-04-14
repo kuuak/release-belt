@@ -7,6 +7,9 @@
     <link href="css/twbs/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <title>Release Belt — {{host}}</title>
+    <style>
+        details > summary { color: #6c757d; cursor: pointer; font-size: 80%; }
+    </style>
 </head>
 <body>
 <div class="container">
@@ -66,9 +69,17 @@
                     <tr>
                         <th scope="row" class="font-weight-normal">{{name}}</th>
                         <td>
-                            <ul class="list-unstyled">
+                            <ul class="list-unstyled mb-0">
                                 {{#versions}}<li><a href="{{dist.url}}">{{version}}</a></li>{{/versions}}
                             </ul>
+                            {{#hasMoreVersions}}
+                            <details>
+                                <summary>more…</summary>
+                                <ul class="list-unstyled mt-1 mb-0">
+                                    {{#moreVersions}}<li><a href="{{dist.url}}">{{version}}</a></li>{{/moreVersions}}
+                                </ul>
+                            </details>
+                            {{/hasMoreVersions}}
                         </td>
                         <td>{{type}}</td>
                     </tr>
