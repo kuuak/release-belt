@@ -252,10 +252,12 @@ class AuthenticationProviderTest extends TestCase
 
         // The Finder should receive path('protected') from the allow list AND
         // path('acme') from the public paths – in that order.
-        $finder->expects($this->exactly(2))
-            ->method('path')
-            ->withConsecutive(['protected'], ['acme'])
-            ->willReturnSelf();
+        $pathCalls = [];
+        $finder->method('path')
+            ->willReturnCallback(function (string $p) use ($finder, &$pathCalls): Finder {
+                $pathCalls[] = $p;
+                return $finder;
+            });
 
         $users = ['user' => ['hash' => password_hash('pass', PASSWORD_BCRYPT), 'allow' => ['protected']]];
 
@@ -276,6 +278,7 @@ class AuthenticationProviderTest extends TestCase
         $response = $this->provider->process($request, $this->makePassThroughHandler());
 
         $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['protected', 'acme'], $pathCalls);
     }
 
     /**
