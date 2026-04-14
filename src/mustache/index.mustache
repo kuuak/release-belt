@@ -69,6 +69,14 @@
                             <ul class="list-unstyled">
                                 {{#versions}}<li><a href="{{dist.url}}">{{version}}</a></li>{{/versions}}
                             </ul>
+                            {{#hasMoreVersions}}
+                            <details>
+                                <summary class="text-muted small">more…</summary>
+                                <ul class="list-unstyled">
+                                    {{#moreVersions}}<li><a href="{{dist.url}}">{{version}}</a></li>{{/moreVersions}}
+                                </ul>
+                            </details>
+                            {{/hasMoreVersions}}
                         </td>
                         <td>{{type}}</td>
                     </tr>

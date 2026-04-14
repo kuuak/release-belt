@@ -73,10 +73,13 @@ class IndexModel
         uksort($versions, 'version_compare');
         $versions = array_reverse($versions);
         $latest   = current(array_keys($versions));
-        $package  = [
-            'name'     => $name,
-            'latest'   => $latest,
-            'versions' => array_values($versions),
+        $allVersions = array_values($versions);
+        $package     = [
+            'name'            => $name,
+            'latest'          => $latest,
+            'versions'        => array_slice($allVersions, 0, 3),
+            'moreVersions'    => array_slice($allVersions, 3),
+            'hasMoreVersions' => count($allVersions) > 3,
         ];
 
         if (! empty($versions[$latest]['type'])) {
