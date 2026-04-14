@@ -213,9 +213,7 @@ class AuthenticationProvider implements MiddlewareInterface
         $publicPaths = $this->container->has('public') ? $this->container->get('public') : [];
 
         return array_map(
-            static function (string $path): string {
-                return '/' . ltrim($path, '/');
-            },
+            fn(string $path): string => '/' . ltrim($path, '/'),
             $publicPaths
         );
     }
