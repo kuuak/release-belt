@@ -45,6 +45,7 @@ class IndexModel
             'user'              => $this->username,
             'packages'          => $this->getPackages(),
             'jsonUrl'           => $this->urlGenerator->getUrl('json'),
+            'loginUrl'          => $this->urlGenerator->getUrl('login'),
         ];
     }
 

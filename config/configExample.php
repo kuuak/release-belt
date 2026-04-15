@@ -15,6 +15,15 @@ return [
     // Customize path to the directory containing release ZIP files.
     // 'release.dir'           => __DIR__.'/../releases',
 
+    // Array of patterns for packages that are publicly accessible without authentication.
+    // Each entry is matched against both the vendor name and the package filename:
+    //   - 'acme'          allows all packages under the /acme/* vendor path.
+    //   - 'public-plugin' allows any package whose filename contains 'public-plugin',
+    //                     e.g. /acme/public-plugin-1.0.0.zip, regardless of vendor.
+    //'public'                   => [
+    //    'acme',
+    //],
+
     //'users'                    => [
           // User login.
     //    'composer' => [
