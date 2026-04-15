@@ -157,6 +157,42 @@ class AuthenticationProviderTest extends TestCase
     }
 
     /**
+     * Unauthenticated request to a public package path is allowed even when
+     * the configured entry is a package name rather than a vendor name.
+     *
+     * URL structure is /{vendor}/{package-version.zip}.  When `public` contains a
+     * package name (e.g. 'public-plugin') the file is served at
+     * /{any-vendor}/public-plugin-1.0.0.zip and must not require auth.
+     */
+    public function testProcessAllowsUnauthenticatedAccessToPublicPackagePath(): void
+    {
+        $finder = (new Finder())->files();
+        $this->provider->setPublicPaths(['/public-plugin']);
+        $this->provider->setUserHashes(['user' => password_hash('pass', PASSWORD_BCRYPT)]);
+        $this->provider->setContainer($this->makeContainerWithFinder($finder));
+
+        $request  = (new ServerRequestFactory())->createServerRequest('GET', 'http://localhost/acme/public-plugin-1.0.0.zip');
+        $response = $this->provider->process($request, $this->makePassThroughHandler());
+
+        $this->assertNotEquals(401, $response->getStatusCode());
+    }
+
+    /**
+     * Unauthenticated request to a file whose name does NOT match the public
+     * package entry still returns 401 (no false-positive on unrelated packages).
+     */
+    public function testProcessDeniesUnauthenticatedAccessWhenFilenameDoesNotMatchPublicEntry(): void
+    {
+        $this->provider->setPublicPaths(['/public-plugin']);
+        $this->provider->setUserHashes(['user' => password_hash('pass', PASSWORD_BCRYPT)]);
+
+        $request  = (new ServerRequestFactory())->createServerRequest('GET', 'http://localhost/acme/private-plugin-1.0.0.zip');
+        $response = $this->provider->process($request, $this->makePassThroughHandler());
+
+        $this->assertSame(401, $response->getStatusCode());
+    }
+
+    /**
      * Unauthenticated request to a protected vendor path returns 401.
      */
     public function testProcessDeniesUnauthenticatedAccessToProtectedVendorPath(): void

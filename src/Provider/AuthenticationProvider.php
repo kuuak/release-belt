@@ -20,8 +20,9 @@ use Symfony\Component\Finder\Finder;
  *  - /login              always triggers the Basic Auth browser dialog; on
  *                        success it redirects back to the index page.
  *  - / and /packages.json  accessible without credentials; unauthenticated
- *                        requests see only public-vendor packages.
- *  - /{public-vendor}/*  accessible without credentials.
+ *                        requests see only public packages.
+ *  - /{public-vendor}/*  accessible without credentials (vendor match).
+ *  - /{any-vendor}/{public-package-*}  accessible without credentials (package-name match).
  *  - everything else     requires valid credentials (returns 401 otherwise).
  *
  * When no users are configured the middleware is not added to the app and
@@ -145,12 +146,27 @@ class AuthenticationProvider implements MiddlewareInterface
     }
 
     /**
-     * Returns true when $path falls under one of the configured public vendors.
+     * Returns true when $path falls under one of the configured public entries.
+     *
+     * An entry can identify either a vendor (e.g. `acme` matches `/acme/*`) or a
+     * package name (e.g. `my-plugin` matches `/any-vendor/my-plugin-1.0.0.zip`).
+     * The matching is a substring check on the relevant URL segment, consistent
+     * with the Finder::path() filter used to build the public package list.
      */
     private function isPublicVendorPath(string $path): bool
     {
         foreach ($this->publicPaths as $prefix) {
+            // Vendor-level match: /entry/...
             if (strpos($path, $prefix . '/') === 0 || $path === $prefix) {
+                return true;
+            }
+
+            // Package-name match: entry appears in the filename segment
+            // URL structure is /{vendor}/{package-version.zip}
+            $entry    = ltrim($prefix, '/');
+            $slashPos = strpos($path, '/', 1);
+
+            if ($slashPos !== false && strpos(substr($path, $slashPos + 1), $entry) !== false) {
                 return true;
             }
         }
