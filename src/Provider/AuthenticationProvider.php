@@ -150,8 +150,10 @@ class AuthenticationProvider implements MiddlewareInterface
      *
      * An entry can identify either a vendor (e.g. `acme` matches `/acme/*`) or a
      * package name (e.g. `my-plugin` matches `/any-vendor/my-plugin-1.0.0.zip`).
-     * The matching is a substring check on the relevant URL segment, consistent
-     * with the Finder::path() filter used to build the public package list.
+     *
+     * The filename-segment check uses the same substring logic as Finder::path()
+     * inside applyPublicFilter(), ensuring that both the web UI and composer
+     * require treat a package as public under identical conditions.
      */
     private function isPublicVendorPath(string $path): bool
     {
@@ -161,8 +163,10 @@ class AuthenticationProvider implements MiddlewareInterface
                 return true;
             }
 
-            // Package-name match: entry appears in the filename segment
-            // URL structure is /{vendor}/{package-version.zip}
+            // Package-name match: entry appears in the filename segment.
+            // URL structure is /{vendor}/{package-version.zip}.
+            // Uses substring matching to stay consistent with Finder::path()
+            // which also performs a substring check on the full relative path.
             $entry    = ltrim($prefix, '/');
             $slashPos = strpos($path, '/', 1);
 
